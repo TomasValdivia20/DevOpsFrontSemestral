@@ -1,0 +1,52 @@
+# docker-compose.yml — Frontend Despacho / Innovatech Chile
+# Uso:
+#   LOCAL:      docker compose up -d --build
+#   PRODUCCIÓN: BACKEND_HOST=IP_PRIVADA_BACKEND docker compose up -d
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Build args para Vite (bakeados en el bundle JS)
+      # En producción con nginx proxy quedan vacíos → llamadas relativas
+      args:
+        VITE_VENTAS_URL: ""
+        VITE_DESPACHOS_URL: ""
+
+    image: ${DOCKERHUB_USERNAME:-innovatech}/frontend-despacho:latest
+
+    container_name: frontend-despacho
+
+    # Puerto: HOST 80 → CONTENEDOR 8080
+    # Solo el puerto 80 expuesto al mundo (Security Group Frontend EC2)
+    ports:
+      - "80:8080"
+
+    # Variable de entorno inyectada en nginx.conf.template via envsubst
+    # En producción: IP privada del EC2 Backend
+    # En local:      host.docker.internal (para llegar al host) o nombre de servicio
+    environment:
+      - BACKEND_HOST=${BACKEND_HOST:-host.docker.internal}
+
+    # Política de reinicio automático si el contenedor cae
+    restart: unless-stopped
+
+    # Volumen para persistir logs de nginx
+    volumes:
+      - frontend-logs:/var/log/nginx
+
+    # Health check: verifica que nginx responde
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+# ─── Volumen nombrado para logs ──────────────────────────────────────
+# Named volume = Docker gestiona ubicación → más portable que bind mount
+volumes:
+  frontend-logs:
+    driver: local
