@@ -6,7 +6,6 @@ on:
       - deploy
 
 env:
-  # Definimos el nombre completo aquí para evitar errores de concatenación
   IMAGE_FULL_NAME: tomasvaldivia20/frontend-despacho
 
 jobs:
@@ -23,7 +22,7 @@ jobs:
       - name: Login a Docker Hub
         uses: docker/login-action@v3
         with:
-          username: tomasvaldivia20  # Usamos tu usuario directo
+          username: tomasvaldivia20
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Extraer metadata
@@ -60,22 +59,28 @@ jobs:
           host: ${{ secrets.EC2_FRONTEND_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          # IMPORTANTE: Mapeamos las variables de GitHub a variables de entorno SSH
+          envs: IMAGE_FULL_NAME,DOCKERHUB_TOKEN,BACKEND_PRIVATE_IP
           script: |
             set -e
-            # Login con el token
-            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u tomasvaldivia20 --password-stdin
             
-            # Pull de la imagen usando el nombre corregido
-            docker pull ${{ env.IMAGE_FULL_NAME }}:latest
+            # Ahora podemos usar las variables directamente en el shell del EC2
+            echo "$DOCKERHUB_TOKEN" | docker login -u tomasvaldivia20 --password-stdin
+            
+            echo "--- Descargando imagen: $IMAGE_FULL_NAME:latest ---"
+            docker pull $IMAGE_FULL_NAME:latest
 
+            echo "--- Limpiando contenedores antiguos ---"
             docker stop frontend-despacho 2>/dev/null || true
             docker rm frontend-despacho 2>/dev/null || true
 
+            echo "--- Iniciando nuevo contenedor ---"
             docker run -d \
               --name frontend-despacho \
               --restart unless-stopped \
               -p 80:8080 \
-              -e BACKEND_HOST=${{ secrets.BACKEND_PRIVATE_IP }} \
-              ${{ env.IMAGE_FULL_NAME }}:latest
+              -e BACKEND_HOST=$BACKEND_PRIVATE_IP \
+              $IMAGE_FULL_NAME:latest
             
             docker image prune -f
+            echo "--- Despliegue exitoso ---"
