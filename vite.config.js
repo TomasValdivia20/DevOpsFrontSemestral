@@ -8,14 +8,14 @@ export default defineConfig({
   server: {
     // Proxy para desarrollo local: evita CORS y simula el proxy de nginx
     proxy: {
-      // Ventas API → Spring Boot en localhost:8080
+      // Ventas API → Spring Boot en localhost:8081
       '/api/v1/ventas': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:8081',
         changeOrigin: true,
       },
-      // Despachos API → Spring Boot en localhost:8081
+      // Despachos API → Spring Boot en localhost:8082
       '/api/v1/despachos': {
-        target: 'http://localhost:8081',
+        target: 'http://localhost:8082',
         changeOrigin: true,
       }
     }
