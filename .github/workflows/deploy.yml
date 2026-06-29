@@ -1,124 +1,68 @@
-# .github/workflows/deploy.yml — Frontend Despacho / Innovatech Chile
-# Trigger: push a la rama 'deploy'
-# Pasos: build imagen Docker → push Docker Hub → deploy SSH en EC2 Frontend
-
-name: CI/CD Frontend — Innovatech Chile
+name: CI/CD Frontend — Innovatech Chile (Fargate)
 
 on:
   push:
     branches:
-      - deploy   # Solo se activa en la rama deploy (no en main)
+      - deploy
 
 env:
-  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/frontend-despacho
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: 162455266988.dkr.ecr.us-east-1.amazonaws.com
+  ECS_CLUSTER: innovatech-cluster
 
 jobs:
-  # ─────────────────────────────────────────────────────────────
-  # JOB 1: Construir y publicar imagen Docker en Docker Hub
-  # ─────────────────────────────────────────────────────────────
-  build-and-push:
-    name: 🐳 Build & Push imagen Docker
+  deploy:
+    name: Build, Push & Deploy
     runs-on: ubuntu-latest
-
     steps:
-      - name: 📥 Checkout código fuente
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 🔧 Configurar Docker Buildx
+      - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: 🔑 Login a Docker Hub
-        uses: docker/login-action@v3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: 🏷️ Extraer metadata (tags automáticos)
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest
-            type=sha,prefix=sha-
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: 🏗️ Build y Push imagen Docker
+      - name: Build & Push to ECR
         uses: docker/build-push-action@v5
         with:
           context: .
-          dockerfile: ./Dockerfile
+          file: ./Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          # Build args: en producción vacíos → nginx proxy maneja las llamadas
-          build-args: |
-            VITE_VENTAS_URL=
-            VITE_DESPACHOS_URL=
-          # Cache para acelerar builds posteriores
+          tags: |
+            ${{ env.ECR_REGISTRY }}/innovatech-frontend:latest
+            ${{ env.ECR_REGISTRY }}/innovatech-frontend:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ─────────────────────────────────────────────────────────────
-  # JOB 2: Deploy automático en EC2 Frontend (subred pública)
-  # ─────────────────────────────────────────────────────────────
-  deploy:
-    name: 🚀 Deploy en EC2 Frontend
-    runs-on: ubuntu-latest
-    needs: build-and-push    # Solo ejecuta si el build fue exitoso
+      - name: Render task definition
+        run: |
+          TASK_DEF_ARN=$(aws ecs describe-services \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services innovatech-frontend-task-service-ei964r2h \
+            --query 'services[0].taskDefinition' \
+            --output text)
+          echo "Current task definition: $TASK_DEF_ARN"
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition "$TASK_DEF_ARN" \
+            --query 'taskDefinition' --output json)
+          echo "$TASK_DEF" | jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy, .deregisteredAt) | .containerDefinitions[0].image = "${{ env.ECR_REGISTRY }}/innovatech-frontend:${{ github.sha }}"' > task-definition.json
 
-    steps:
-      - name: 📂 Copiar docker-compose al EC2
-        uses: appleboy/scp-action@v0.1.4
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
-          host: ${{ secrets.EC2_FRONTEND_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: "docker-compose.yml"
-          target: "/home/ubuntu/frontend"
-
-      - name: 🖥️ Deploy en EC2 vía SSH
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.EC2_FRONTEND_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          timeout: 60s
-          script: |
-            echo "=========================================="
-            echo "  Iniciando despliegue Frontend"
-            echo "  Imagen: ${{ env.IMAGE_NAME }}:latest"
-            echo "=========================================="
-
-            cd /home/ubuntu/frontend
-
-            # Login a Docker Hub desde el EC2
-            echo "${{ secrets.DOCKERHUB_TOKEN }}" | \
-              docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-
-            # Descargar la imagen más reciente desde Docker Hub
-            docker pull ${{ env.IMAGE_NAME }}:latest
-
-            # Detener y eliminar contenedor anterior (si existe)
-            docker stop frontend-despacho 2>/dev/null || true
-            docker rm   frontend-despacho 2>/dev/null || true
-
-            # Arrancar nuevo contenedor
-            # BACKEND_HOST = IP privada del EC2 Backend en la VPC
-            docker run -d \
-              --name frontend-despacho \
-              --restart unless-stopped \
-              -p 80:8080 \
-              -e BACKEND_HOST=${{ secrets.BACKEND_PRIVATE_IP }} \
-              -v frontend-logs:/var/log/nginx \
-              ${{ env.IMAGE_NAME }}:latest
-
-            # Verificar que el contenedor quedó corriendo
-            echo "--- Estado del contenedor ---"
-            docker ps --filter name=frontend-despacho
-
-            # Limpiar imágenes antiguas para liberar espacio en disco
-            docker image prune -f
-
-            echo "=========================================="
-            echo "  ✅ Despliegue Frontend completado"
-            echo "=========================================="
+          task-definition: task-definition.json
+          service: innovatech-frontend-task-service-ei964r2h
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true

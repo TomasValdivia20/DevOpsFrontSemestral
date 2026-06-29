@@ -13,14 +13,14 @@ INTERNET
 │   Contenedor: nginx         │
 │   Sirve SPA + Proxy API     │
 └────────────┬────────────────┘
-             │ /api/v1/ventas    → :8080
-             │ /api/v1/despachos → :8081
+              │ /api/v1/ventas    → :8081
+              │ /api/v1/despachos → :8082
              │ (Red privada VPC)
              ▼
 ┌─────────────────────────────┐
 │   EC2 Backend (privada)     │
-│   Contenedor: ventas :8080  │
-│   Contenedor: despachos:8081│
+ │   Contenedor: ventas :8081  │
+ │   Contenedor: despachos:8082│
 │   Contenedor: mysql :3306   │
 │   Volumen: mysql-data       │
 └─────────────────────────────┘
@@ -61,8 +61,8 @@ npm install
 
 # Levantar servidor de desarrollo (proxy configurado en vite.config.js)
 npm run dev
-# Vite proxea /api/v1/ventas → localhost:8080
-# Vite proxea /api/v1/despachos → localhost:8081
+# Vite proxea /api/v1/ventas → localhost:8081
+# Vite proxea /api/v1/despachos → localhost:8082
 ```
 
 ### Con Docker local
