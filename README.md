@@ -1,4 +1,4 @@
-# Frontend Despacho — Innovatech Chile 
+|# Frontend Despacho — Innovatech Chile 
 
 Aplicación React + Vite para la gestión de despachos y ventas, containerizada con Docker y desplegada automáticamente en AWS EC2 mediante GitHub Actions.
 
@@ -59,6 +59,9 @@ INTERNET
 # Instalar dependencias
 npm install
 
+#Verificar Version
+npm --version
+
 # Levantar servidor de desarrollo (proxy configurado en vite.config.js)
 npm run dev
 # Vite proxea /api/v1/ventas → localhost:8080
@@ -79,7 +82,7 @@ docker compose logs -f
 
 # Verificar que corre
 curl http://localhost
-```
+
 
 ### En producción (EC2)
 El pipeline CI/CD se encarga de todo. Ver sección CI/CD más abajo.
